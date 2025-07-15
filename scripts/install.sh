@@ -69,10 +69,29 @@ if [ -z "$VERSION" ]; then
   if [ "$DRY_RUN" -eq 1 ]; then
     VERSION="latest"
   else
-    echo "[install] Fetching latest Sprint version…"
-    VERSION="$(eval curl -fsSL $CURL_AUTH https://api.github.com/repos/tebriz91/sprint-public/releases/latest | grep -oE '"tag_name":\s*"v?[0-9.]+' | head -n1 | grep -oE '[0-9.]+')"
+    echo "[install] Determining latest Sprint version…"
+
+    # Try GitHub releases/latest endpoint (may 404 if no release published)
+    VERSION="$(eval curl -sSL $CURL_AUTH https://api.github.com/repos/tebriz91/sprint-public/releases/latest 2>/dev/null \
+      | grep -oE '"tag_name":\s*"v?[0-9.]+' | head -n1 | grep -oE '[0-9.]+' || true)"
+
+    # Fallback: first tag if no release found
     if [ -z "$VERSION" ]; then
-      echo "[install] Could not determine version (API returned empty)" >&2; exit 1;
+      VERSION="$(eval curl -sSL $CURL_AUTH https://api.github.com/repos/tebriz91/sprint-public/tags 2>/dev/null \
+        | grep -oE '"name":\s*"v?[0-9.]+' | head -n1 | grep -oE '[0-9.]+' || true)"
+    fi
+
+    # Fallback: git ls-remote (avoids GitHub API rate-limits)
+    if [ -z "$VERSION" ]; then
+      if command -v git >/dev/null 2>&1; then
+        VERSION="$(git ls-remote --tags --quiet --sort='v:refname' https://github.com/tebriz91/sprint-public.git 'v*' \
+          | tail -n1 | sed -E 's#.*/v([0-9.]+)$#\1#')"
+      fi
+    fi
+
+    if [ -z "$VERSION" ]; then
+      echo "[install] Could not determine version – pass --version or publish a release." >&2
+      exit 1
     fi
   fi
 fi
